@@ -1,69 +1,105 @@
-# MIDI-Controller
+# MIDI Controller
 
-## Introduction:
+A hand-built MIDI controller: five knobs, four keys, a joystick and a couple of toggle switches in a foam-board case, driven by an Arduino. Plug it in over USB and it shows up as a MIDI device in any DAW, so you can play notes, turn knobs and bend pitch on real hardware instead of clicking around a screen.
 
-A MIDI controller is a device used in music production and performance to generate and control MIDI data. It provides a hands-on interface with keys, pads, buttons, knobs, and sliders, allowing musicians to interact with MIDI-compatible software and hardware devices. MIDI controllers enable real-time control of virtual instruments, parameter adjustments, and recording MIDI data, enhancing the creative process in electronic music production.
+![The finished controller: joystick, five knobs, power LED and a 2×2 key grid in a white foam-board case](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/09b1b0ab-9fc0-4909-889a-b8d266ea7fc0)
 
-![midi](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/09b1b0ab-9fc0-4909-889a-b8d266ea7fc0)
+## What it does
 
-## readPots.ino:
+- **Five knobs** send MIDI Control Change messages, so each one can be mapped to a filter cutoff, a send level, a synth parameter or anything else your DAW lets you MIDI-learn.
+- **Four keys** play notes. They start on middle C and two transpose switches move the whole keypad an octave up or down, across the full MIDI note range.
+- **A joystick** doubles as a modulation wheel on one axis and a pitch bend wheel on the other, with a toggle switch under each axis so you can lock one off while you play.
+- **Jitter filtering** on every analog input keeps the serial link quiet. Only real movement produces a message, so the DAW never gets flooded.
 
-This file contains the readPots() function, which reads the values from five potentiometers (pot1, pot2, pot3, pot4, pot5) using the analogRead() function. It then calculates the difference between the new value and the last recorded value for each potentiometer. If the difference exceeds a certain threshold (diff), it sends a MIDI message using the MIDImessage() function.
+It runs in FL Studio here, but anything that accepts a MIDI input works the same way.
 
-![pots](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/1922439c-8110-4101-bcf4-d1961104b86b)
+![The controller driving FL Studio](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/d4ff2a3e-629f-4f48-beb2-0e2b8c9e030f)
 
-The MIDI message is sent with the status byte 177, which represents a Control Change message. The second byte represents the control number (0-4 for the five potentiometers), and the third byte is the mapped value of the potentiometer reading in the range of 0-127.
+## How it works
 
-## readKeyPad.ino:
+The Arduino reads every control in a loop and, whenever one changes enough to matter, writes a three-byte MIDI message over its serial port. On the computer, [Hairless MIDI](https://projectgus.github.io/hairless-midiserial/) turns that serial stream into MIDI and [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) exposes it as a virtual MIDI port that the DAW can pick up.
 
-This file contains the readKeyPad() function, which reads input from a keypad using the Keypad library. The keypad is scanned to detect keys that have changed their state (pressed or released). When a key is pressed, a MIDI "Note On" message is sent using the MIDImessage() function, and when a key is released, a MIDI "Note Off" message is sent.
+```
+knobs / keys / joystick  →  Arduino  →  USB serial  →  Hairless MIDI  →  loopMIDI port  →  DAW
+```
 
-![keypad](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/f034bf99-a448-4afa-a7cc-5bf2a781631e)
+Every message follows the standard MIDI layout: a status byte that says what kind of message it is and which channel it is on, then two data bytes.
 
+| Control | Message | Status byte | Data 1 | Data 2 |
+| --- | --- | --- | --- | --- |
+| Knobs 1 to 5 | Control Change, channel 2 | `177` | controller number `0` to `4` | value `0` to `127` |
+| Key pressed | Note On, channel 1 | `144` | note number | velocity `127` |
+| Key released | Note Off, channel 1 | `128` | note number | velocity `0` |
+| Joystick X | Control Change 1 (mod wheel), channel 1 | `176` | `1` | value `127` to `0` |
+| Joystick Y | Pitch Bend, channel 1 | `224` | low 7 bits | high 7 bits |
 
-The MIDI messages are sent with the status byte 144 (channel 1 Note On) for the "Note On" messages and 128 (channel 1 Note Off) for the "Note Off" messages. The second byte represents the note number, which is calculated based on the key pressed and the transpose value. The third byte is the velocity (127 for "Note On" and 0 for "Note Off").
+## The build
 
-The transpose value can be adjusted using two toggle switches (transposePin1 and transposePin2) to shift the keypad mapping up or down the scale by one octave.
+The case is cut from foam board. The knobs sit in a row of five and share a common supply rail, soldered as a daisy chain so only one pair of wires has to run back to the board for power and ground. Each wiper goes to its own analog pin.
 
-## readJoystick.ino:
+![Five 100K potentiometers mounted on a foam-board panel, supply rails daisy-chained in red wire](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/1922439c-8110-4101-bcf4-d1961104b86b)
 
-This file contains the readJoystick() function, which reads input from a joystick. It reads the values of the X-axis and Y-axis potentiometers of the joystick using the analogRead() function. The X-axis reading is sent as a MIDI Control Change message, while the Y-axis reading is sent as a modulation MIDI message.
+The keys are tactile switches set into a 2×2 grid cut out of the panel.
 
-The X-axis MIDI message is sent with the status byte 176, representing a Control Change message on channel 1. The second byte represents the control number (1), and the third byte is the mapped value of the joystick X-axis reading in the range of 127-0.
+![The 2×2 grid of tactile switches](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/f034bf99-a448-4afa-a7cc-5bf2a781631e)
 
-The Y-axis modulation MIDI message is sent with the status byte 224, representing a Pitch Bend message. The third byte of the message is constructed using the joystick Y-axis reading, mapping it to a 14-bit value (-8000 to 8000) and splitting it into two 7-bit values.
+Everything terminates on an Arduino Mega sitting in the back of the case.
 
-The joystick readings are only sent if the corresponding toggle switch (Xswitch for X-axis, Yswitch for Y-axis) is in the correct position.
+![The open case with the Arduino Mega wired to the knobs and switches](images/IMG_20210313_012529.jpg)
 
-## MIDImessage.ino:
+### Parts
 
-This file contains the MIDImessage() function, which takes three arguments: the status byte, and two data bytes. It sends the MIDI message by writing the bytes to the Serial interface. The Serial interface is typically connected to a MIDI output device or a computer running MIDI software.
+- Arduino Mega (any board with enough analog inputs and a USB serial port will do)
+- 5 × B100K potentiometers
+- 4 × tactile switches, wired as a keypad
+- 1 × two-axis analog joystick module
+- 2 × toggle switches for transpose, 2 × toggle switches for the joystick axes
+- 1 × LED for power
+- Foam board, jumper wire, hot glue
 
-The MIDI message consists of three bytes: the status byte indicates the type of message (e.g., Note On, Note Off, Control Change), and the data bytes carry additional information
+## The code
 
-## Software
+The sketch is split into four tabs, one per concern. They share a handful of globals (pin numbers, last-read values, the transpose offset and the `Keypad` object) that live in the main tab alongside `setup()`, which opens the serial port, and `loop()`, which calls the three readers in turn.
 
-Hairless MIDI and LoopMIDI are software tools commonly used together to establish MIDI communication between applications and devices on a computer. Here's some information about each of them:
+### `readPots.ino`
 
-### 1. Hairless MIDI:
-   Hairless MIDI is a MIDI-over-Serial bridge application. It allows you to create a virtual serial port connection between MIDI-enabled applications and devices that communicate over serial ports. Hairless MIDI acts as a bridge, converting MIDI data into serial data and vice versa. This is useful when you want to connect MIDI-enabled hardware or software to applications that communicate through serial ports.
+Reads the five potentiometers and compares each reading against the last one it sent. If the difference is bigger than a small threshold (`4` out of `1023`) it maps the reading to `0` to `127` and sends a Control Change on channel 2, with controller numbers `0` to `4` for the five knobs. The threshold is what stops a cheap pot that is hovering between two adjacent values from spamming the DAW.
 
-![hairlessMidi](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/b16ab7d5-3368-4e91-b89b-def39ed61b21)
+### `readKeyPad.ino`
 
+Uses the [Keypad library](https://www.arduino.cc/reference/en/libraries/keypad/) to scan the keys, and only reacts to keys whose state has changed. A press sends Note On with velocity `127`, a release sends Note Off with velocity `0`. Key 1 is middle C (note `60`) and the other keys step up one semitone each.
 
-Hairless MIDI provides features such as baud rate selection, MIDI message logging, and the ability to filter or transform MIDI messages. It's compatible with various platforms including Windows, macOS, and Linux.
+Two toggle switches handle transpose. Flipping one shifts the whole keypad by twelve semitones, with a one-second debounce so a held switch only fires once, and limits so the notes stay inside `0` to `127`.
 
-### 2. LoopMIDI:
-   LoopMIDI is a virtual MIDI driver software. It creates virtual MIDI ports on your computer, allowing MIDI data to be routed between applications internally. With LoopMIDI, you can create multiple virtual MIDI ports, which can be used by different MIDI-enabled applications to communicate with each other.
+### `readJoystick.ino`
 
-![loopMidi](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/1564aa4f-9172-43d4-b200-60292d8cfdf9)
+The joystick is two potentiometers with a limited travel, so each axis gets its own toggle switch and its own threshold (`2`).
 
+- The X axis sends Control Change 1, the standard modulation wheel, mapped so that pushing right lowers the value.
+- The Y axis sends Pitch Bend, which is a 14-bit value. The reading is mapped to `-8000` to `8000` around the centre (`0x2000`, no bend), then split into a low and a high 7-bit byte before sending.
 
-LoopMIDI simplifies the process of connecting MIDI-enabled applications that need to exchange MIDI messages. You can set up virtual MIDI ports in LoopMIDI and configure applications to send and receive MIDI data through these ports.
+### `MIDImessage.ino`
 
-By using Hairless MIDI and LoopMIDI together, you can establish MIDI communication between applications that communicate over serial ports and applications that use virtual MIDI ports. This allows for flexible and convenient integration of MIDI-enabled software and hardware on your computer.
+A three-line helper that writes the status byte and two data bytes to `Serial`. Every other tab calls it. The [MIDI status byte table](https://www.midi.org/specifications-old/item/table-2-expanded-messages-list-status-bytes) is the reference for what each byte means.
 
-<br/>
+## Getting it onto your computer
 
-![DAW](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/d4ff2a3e-629f-4f48-beb2-0e2b8c9e030f)
+1. Upload the sketch to the Arduino and connect it over USB.
+2. Install **loopMIDI** and create a virtual port.
+3. Install **Hairless MIDI**, pick the Arduino's serial port on the left and the loopMIDI port on the right, and match the baud rate to the one the sketch opens. The debug pane shows every message as it arrives, which makes wiring mistakes easy to spot.
 
+![Hairless MIDI bridging the Arduino's serial port to a loopMIDI port](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/b16ab7d5-3368-4e91-b89b-def39ed61b21)
+
+4. In your DAW, enable the loopMIDI port as a MIDI input. The keys play straight away; the knobs and joystick can be MIDI-learned onto whatever you like.
+
+![loopMIDI with a virtual port created for the controller](https://github.com/e-for-eshaan/MIDI-Controller/assets/76566992/1564aa4f-9172-43d4-b200-60292d8cfdf9)
+
+## Repository
+
+```
+MIDImessage.ino    serial MIDI helper
+readPots.ino       five knobs → Control Change
+readKeyPad.ino     keys + transpose switches → Note On / Note Off
+readJoystick.ino   joystick → mod wheel + pitch bend
+images/            build photos
+```
